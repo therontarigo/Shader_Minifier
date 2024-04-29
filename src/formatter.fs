@@ -14,6 +14,7 @@ module private Impl =
             if options.outputFormat = Options.IndentedText then
                 failwith "exporting symbols is not compatible with indented mode"
             Printer.writeSymbols shader
+            Printer.writeSourcemap shader
 
         match options.outputFormat with
         | Options.Text | Options.JS ->

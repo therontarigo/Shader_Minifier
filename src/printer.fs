@@ -7,6 +7,11 @@ open Ast
 open Options.Globals
 open System.Text.RegularExpressions
 
+// Whatever .NET / C# / F# think of strings and characters is irrelevant; the shader is plain bytes ASCII or UTF-8 and kkp formats use real byte offsets, not "characters".
+// --> need to stop using (minifiedShader: string) and use (minifiedShader: byte array) instead.
+//   (instead of the "cannot process a non-byte char" hack.)
+// Of course it is only theoretical and in practice minified shaders are pure ASCII.
+
 let private kkpSymFormat shaderSymbol minifiedSize (symbolPool: string array) (symbolIndexes: int16 array) =
     // https://github.com/ConspiracyHu/kkpView-public/blob/main/README.md
     let bytes = List<byte>(capacity = 2 * symbolIndexes.Length)
@@ -37,6 +42,64 @@ type SymbolMap() =
         let symbolIndexes = symbolRefs.Select(fun symbolRef -> indexMap[symbolRef]).ToArray()
         let symbolPool = indexMap.OrderBy(fun kv -> kv.Value).Select(fun kv -> kv.Key).ToArray()
         let bytes = kkpSymFormat shaderSymbol minifiedShader.Length symbolPool symbolIndexes
+        bytes
+
+let private kkpFormat shaderSymbol (minifiedShader: string) (sourcePool: string array) (sourceIndexes: int16 array) (lineNumbers: int16 array) =
+    // https://github.com/ConspiracyHu/kkpView-public/blob/main/README.md
+    let bytes = List<byte>(capacity = 0)
+    let ascii (s: string) = bytes.AddRange(System.Text.Encoding.ASCII.GetBytes s)
+    let asciiz s = ascii s; bytes.Add(byte 0)
+    let eightByteInteger n = bytes.AddRange(List.map byte [ n; n >>> 8; n >>> 16; n >>> 24; n >>> 32; n >>> 40; n >>> 48; n >>> 56 ])
+    let fourByteInteger n = bytes.AddRange(List.map byte [ n; n >>> 8; n >>> 16; n >>> 24 ])
+    let twoByteInteger (n: int16) = bytes.AddRange(List.map byte [ n; n >>> 8 ])
+    let doubleFloat n = eightByteInteger (BitConverter.DoubleToInt64Bits (float n))
+    let filebytes = System.Text.Encoding.ASCII.GetBytes minifiedShader
+    let minifiedSize = filebytes.Count()
+
+    // ----- FIX FIX FIX why is SingleToInt32Bits not defined? -----
+    //let singleFloat n = fourByteInteger (BitConverter.SingleToInt32Bits (float32 n))
+    let singleFloat n = fourByteInteger 0
+
+    ascii "KK64"                        // 4 bytes: FOURCC: 'KK64'
+    fourByteInteger minifiedSize        // 4 bytes: size of described binary in bytes (Ds)
+    fourByteInteger sourcePool.Length   // 4 bytes: number of source code files (Cc)
+    for sourceName in sourcePool do     // Cc times:
+        asciiz sourceName               //     ASCIIZ string: filename
+        singleFloat 0                   //     float: packed size for the complete file
+        fourByteInteger 123             //     4 bytes: unpacked size for the complete file, in int
+    fourByteInteger 1                   // 4 bytes: number of symbols (Sc)
+    for symbolName in [shaderSymbol] do
+        asciiz symbolName               //     ASCIIZ string: symbol name
+        doubleFloat minifiedSize        //     double: packed size of symbol
+        fourByteInteger minifiedSize    //     4 bytes: unpacked size of symbol in bytes
+        bytes.Add(byte 1)               //     1 byte: boolean to tell if symbol is code (true if yes)
+        fourByteInteger 0               //     4 bytes: source code file ID
+        fourByteInteger 0               //     4 bytes: symbol position in executable
+    for i in 0..sourceIndexes.Length-1 do // For each byte in the minified shader (Ds),
+        bytes.Add(filebytes[i])         //     1 byte: original data from the binary
+        twoByteInteger (int16 0)        //     2 bytes: symbol index
+        doubleFloat 1                   //     double: packed size -- 1 byte (no packing)
+        twoByteInteger lineNumbers[i]   //     2 bytes: source code line
+        twoByteInteger sourceIndexes[i] //     2 bytes: source code file index
+    bytes.ToArray()
+
+type SourceMap() =
+    let sourceRefs = List<string>() // one per byte in the minified shader
+    let lineNums = List<int16>() // one per byte in the minified shader
+    member _.AddMapping (str: string) (sourceName: string) (lineNumber: int) =
+        if str.ToCharArray() |> Array.exists (fun c -> int(c) >= 256) then failwith "cannot process a non-byte char"
+        for i in 1..str.Length do
+            sourceRefs.Add(sourceName)
+            lineNums.Add(int16 lineNumber)
+    member _.KKPFileBytes (shaderSymbol: string) (minifiedShader: string) =
+        if minifiedShader.Length <> sourceRefs.Count then failwith "minified byte size doesn't match sources"
+        if minifiedShader.Length <> lineNums.Count then failwith "minified byte size doesn't match sources"
+        let mutable i = 0 // indexMap maps each distinct source name to its index in the pool
+        let indexMap = sourceRefs.Distinct().ToDictionary(id, (fun _ -> i <- i + 1; int16(i)))
+        let sourceIndexes = sourceRefs.Select(fun sourceRef -> indexMap[sourceRef]).ToArray()
+        let sourcePool = Array.concat [| [|"<no source>"|] ; indexMap.OrderBy(fun kv -> kv.Value).Select(fun kv -> kv.Key).ToArray() |]
+        let lineNumbers = lineNums.ToArray()
+        let bytes = kkpFormat shaderSymbol minifiedShader sourcePool sourceIndexes lineNumbers
         bytes
 
 let stripIndentation (s: string) = s.Replace("\000", "").Replace("\t", "") // see PrinterImpl.nl
@@ -318,10 +381,33 @@ type PrinterImpl(withLocations) =
         let shaderSymbol = shader.mangledFilename
         let bytes = symbolMap.SymFileBytes shaderSymbol minifiedShader
         System.IO.File.WriteAllBytes(shader.filename + ".sym", bytes)
+    member _.WriteSourcemap shader =
+        let tlStrings = printIndented shader.code |> List.map stripIndentation
+        let minifiedShaderIdentInfo = tlStrings |> String.concat ""
+        let mutable minifiedShader = "";
+        let mutable lineNumber = -1;
+
+        let sourceMap = SourceMap()
+
+        // HACK HACK HACK
+        // works using ident line info and doesn't handle idents themselves correctly.
+        for t in Regex.Split(minifiedShaderIdentInfo,"(@[^@]*@)") do
+            if ((t.[0]='@')) then
+                let pair = Regex.Split(t.[1..t.Length-1-1],",") |> Array.map (fun s -> int s)
+                lineNumber <- pair[0]
+            else
+                let sourceName = shader.filename + ".cpp" // kkpView wtf...
+                sourceMap.AddMapping t sourceName lineNumber
+                minifiedShader <- minifiedShader + t
+
+        let shaderSymbol = shader.mangledFilename
+        let bytes = sourceMap.KKPFileBytes shaderSymbol minifiedShader
+        System.IO.File.WriteAllBytes(shader.filename + ".kkp", bytes)
 
 let printIndented tl = (new PrinterImpl(false)).PrintIndented tl // Indentation is encoded using \0 and \t
 let print tl = printIndented tl |> stripIndentation
 let writeSymbols shader = (new PrinterImpl(false)).WriteSymbols shader
+let writeSourcemap shader = (new PrinterImpl(true)).WriteSourcemap shader
 let exprToS x = (new PrinterImpl(false)).ExprToS 0 x |> stripIndentation
 let typeToS ty = (new PrinterImpl(false)).TypeToS ty |> stripIndentation
 let printWithLoc tl = (new PrinterImpl(true)).PrintIndented tl
