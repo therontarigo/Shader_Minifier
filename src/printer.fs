@@ -103,6 +103,7 @@ type SourceMap() =
         bytes
 
 let stripIndentation (s: string) = s.Replace("\000", "").Replace("\t", "") // see PrinterImpl.nl
+let stripIndentationKeepSeparation (s: string) = s.Replace("\t", "")
 
 type PrinterImpl(withLocations) =
 
@@ -382,24 +383,34 @@ type PrinterImpl(withLocations) =
         let bytes = symbolMap.SymFileBytes shaderSymbol minifiedShader
         System.IO.File.WriteAllBytes(shader.filename + ".sym", bytes)
     member _.WriteSourcemap shader =
-        let tlStrings = printIndented shader.code |> List.map stripIndentation
-        let minifiedShaderIdentInfo = tlStrings |> String.concat ""
-        let mutable minifiedShader = "";
-        let mutable lineNumber = -1;
-
+        let tlStrings = printIndented shader.code |> List.map stripIndentationKeepSeparation
+        let minifiedShaderIdentInfo = tlStrings |> String.concat "\000"
+        let mutable minifiedShader = ""
         let sourceMap = SourceMap()
-
+        let mutable lineNumberFallback = 1
         // HACK HACK HACK
-        // works using ident line info and doesn't handle idents themselves correctly.
-        for t in Regex.Split(minifiedShaderIdentInfo,"(@[^@]*@)") do
-            if ((t.[0]='@')) then
-                let pair = Regex.Split(t.[1..t.Length-1-1],",") |> Array.map (fun s -> int s)
-                lineNumber <- pair[0]
-            else
-                let sourceName = shader.filename + ".cpp" // kkpView wtf...
-                sourceMap.AddMapping t sourceName lineNumber
-                minifiedShader <- minifiedShader + t
-
+        // uses ident line info
+        // assumes everything before first ident on a minifier indented line is from the ident's source line
+        // assumes everything until next ident is also from that line
+        for line in minifiedShaderIdentInfo.Split('\000') do
+            let mutable mintmp = ""
+            let mutable lineNumber = -1
+            let sourceName = shader.filename + ".cpp" // kkpView wtf...
+            for fragment in Regex.Split(line,"([a-zA-Z_][a-zA-Z_0-9]*@[^@]*@)") do
+                let parts = Regex.Split(fragment,"@")
+                if parts.Length > 1 then
+                    let pair = Regex.Split(parts[1],",") |> Array.map (fun s -> int s)
+                    lineNumber <- pair[0]
+                let minfrag = parts[0]
+                mintmp <- mintmp + minfrag
+                if lineNumber >= 0 then
+                    sourceMap.AddMapping mintmp sourceName lineNumber
+                    minifiedShader <- minifiedShader + mintmp
+                    mintmp <- ""
+                    lineNumberFallback <- lineNumber
+            if mintmp.Length > 0 then
+                sourceMap.AddMapping mintmp sourceName lineNumberFallback
+                minifiedShader <- minifiedShader + mintmp
         let shaderSymbol = shader.mangledFilename
         let bytes = sourceMap.KKPFileBytes shaderSymbol minifiedShader
         System.IO.File.WriteAllBytes(shader.filename + ".kkp", bytes)
