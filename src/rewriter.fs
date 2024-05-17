@@ -256,6 +256,16 @@ module private RewriterImpl =
         //    FunCall(Op "-=", [Var x; Var x]) // x=vec3(0);  ->  x-=x;
         | e -> e
 
+    let simplifyOperatorFinal env = function
+        // No simplification when numbers have different suffixes
+        | FunCall(_, [Int (_, su1); Int (_, su2)]) as e when su1 <> su2 -> e
+        | FunCall(_, [Float (_, su1); Float (_, su2)]) as e when su1 <> su2 -> e
+        // Implicit conversions
+        | FunCall(Op ("+"|"-"|"*"|"/") as op, [Float (i1,su); Float (i2,_)]) when language.implicitconv && i1.Equals(int32 i1) -> FunCall(op, [Int (int32 i1,""); Float (i2,su)])
+        | FunCall(Op ("+"|"-"|"*"|"/") as op, [Float (i1,su); Float (i2,_)]) when language.implicitconv && i2.Equals(int32 i2) -> FunCall(op, [Float (i1,su); Int (int32 i2,"")])
+
+        | e -> e
+
     // Simplify calls to the vec constructor.
     let simplifyVec (constr: Ident) args =
         let vecSize = try int(constr.Name.[constr.Name.Length - 1]) - int '0' with _ -> 0
@@ -356,6 +366,10 @@ module private RewriterImpl =
         | Float(f, _) when Decimal.Round(f, 8) = 6.28318531M -> FunCall(Op "*", [Float (2.M, ""); FunCall(Var (Ident "acos"), [Float (-1.M, "")])])
         | Float(f, _) when Decimal.Round(f, 8) = 1.57079633M -> FunCall(Var (Ident "acos"), [Float (0.M, "")])
 
+        | e -> e
+
+    let simplifyExprFinal env = function
+        | FunCall(Op _, _) as op -> simplifyOperatorFinal env op
         | e -> e
 
     // Group declarations within a block. For example, all the float variables will
@@ -721,6 +735,9 @@ module private RewriterImpl =
         | Verbatim s -> Verbatim (stripSpaces s)
         | e -> e
     
+    let simplifyStmtFinal (env : MapEnv) = function
+        | e -> e
+
     let rec removeUnusedFunctions code =
         let funcInfos = Analyzer.findFuncInfos code
         let isUnused (funcInfo : Analyzer.FuncInfo) =
@@ -873,9 +890,15 @@ let rec private iterateSimplifyAndInline passCount li =
             iterateSimplifyAndInline (passCount + 1) li
         else li
 
+let rec private simplifyFinal li =
+    let li = mapTopLevel (mapEnv RewriterImpl.simplifyExprFinal RewriterImpl.simplifyStmtFinal) li
+    li
+
 let simplify li =
     li
     |> iterateSimplifyAndInline 1
+    //|> iterateSimplifyAndInline 1
+    |> simplifyFinal
     |> List.choose (function
         | TLDecl (ty, li) ->
             let li = RewriterImpl.declsNotToInline li

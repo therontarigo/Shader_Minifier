@@ -76,7 +76,7 @@ void main()
           else if(r<.66)
             p=(p+vec3(0,-1-cos(time/20.)*.5,0))*(vec3(.9,.8,.9)*(1.5+sin(time/10.))),r=2.51327408,p.xz=mat2(cos(r),sin(r),-sin(r),cos(r))*p.xz,p+=vec3(0,1,0);
           else if(r<1.)
-            r=125.663704/180.,p.xy=mat2(cos(r),sin(r),-sin(r),cos(r))*p.xy,p=p*.7+vec3(0,.6,0);
+            r=125.663704/180,p.xy=mat2(cos(r),sin(r),-sin(r),cos(r))*p.xy,p=p*.7+vec3(0,.6,0);
           else if(r<1.01)
             col=mix(col,1.,.99),p.xy+=randn(rand2(seed))*.1,r=.25*dot(p.xy,p.xy)+1,p=vec3(p.xy/r,2./r-1)*.068/4.+vec3(randn(rand2(IH(seed)))*.001,0)+vec3(0,0,1.497);
           else if(r<1.04)
@@ -109,7 +109,7 @@ void main()
       q.z-=.7;
       float phi=w.x*3.141592*2,u=w.y*2-1;
       u=sqrt(1-u*u);
-      x=vec3(cos(phi)*u,sin(phi)*u,w.y*2-1)*pow(w.z,1./3.)*3;
+      x=vec3(cos(phi)*u,sin(phi)*u,w.y*2-1)*pow(w.z,1/3.)*3;
       q=mix(q,q+x*.5,.1*pow(H(seed),16.))+x*.2*(1.-min(time/30.,1.)+max(0.,time-130)/20.);
       u=time/8.+199.*step(.5,H(int(floor(time/60.*64.))))*step(60.,time)*step(time,120);
       q.xy=mat2(cos(u),sin(u),-sin(u),cos(u))*q.xy;

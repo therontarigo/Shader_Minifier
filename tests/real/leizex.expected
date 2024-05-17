@@ -24,7 +24,7 @@ _leizex_frag:
 	db   'x=x*x*(3.-2.*x);'
 	db   'f+=n.x+n.y*57+113*n.z;'
 	db   'float y=mix(mix(mix(t(f),t(f+1),x.x),mix(t(f+57),t(f+58),x.x),x.y),mix(mix(t(f+113),t(f+114),x.x),mix(t(f+170),t(f+171),x.x),x.y),x.z);'
-	db   'return 1.-y*(1./1073741824.);'
+	db   'return 1.-y*(1/1073741824.);'
 	db '}'
 	db 'vec2 s(vec3 v)'
 	db '{'

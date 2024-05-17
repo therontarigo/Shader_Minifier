@@ -391,7 +391,7 @@ const char *the_real_party_is_in_your_pocket_frag =
        "l+=h(vec3((gl_FragCoord.xy-vec2(960,540)+a)/540.,-3.5))/48.;"
      "}"
    "l/=(l+1.)/2.;"
-   "gl_FragColor.xyz=pow(l+.01*vec3(1,1,.5),vec3(1./2.2))+h()/1e2;"
+   "gl_FragColor.xyz=pow(l+.01*vec3(1,1,.5),vec3(1/2.2))+h()/1e2;"
  "}";
 
 #endif // THE_REAL_PARTY_IS_IN_YOUR_POCKET_FRAG_EXPECTED_

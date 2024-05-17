@@ -90,7 +90,7 @@ vec2 fragtail(vec3 pos)
       if(pos.z>.5*cxz.z*2.)
         pos.z-=cxz.z*2.;
       r=fBox2(pos.xy,vec2(5,1.5+.25*sin(pos.x*5.)))-.0015;
-      ss*=1./3.;
+      ss*=1/3.;
     }
   return vec2(r*ss,1);
 }

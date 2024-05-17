@@ -23,7 +23,7 @@
  "void main()"
  "{"
    "vec3 c=normalize(d),t=normalize(m);"
-   "r=vec4(mix(vec3(.1,.2,.3)*texture(v,refract(-c,t,1./1.5)).xyz,texture(v,reflect(-c,t)).xyz,.1),1);"
+   "r=vec4(mix(vec3(.1,.2,.3)*texture(v,refract(-c,t,1/1.5)).xyz,texture(v,reflect(-c,t)).xyz,.1),1);"
  "}"
  "vec3 t(vec3 v,vec3 m,vec3 t)"
  "{"
