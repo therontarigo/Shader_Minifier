@@ -196,6 +196,10 @@ module private RewriterImpl =
             if (Printer.exprToS e).Length <= (Printer.exprToS div).Length then e
             else div
 
+        // Implicit conversions
+        | FunCall(Op ("+"|"-"|"*"|"/") as op, [Float (i1,su); Int (i2,_)]) when language.implicitconv -> FunCall(op, [Float (i1,su); Float (decimal i2,su)])
+        | FunCall(Op ("+"|"-"|"*"|"/") as op, [Int (i1,_); Float (i2,su)]) when language.implicitconv -> FunCall(op, [Float (decimal i1,su); Float (i2,su)])
+
         // Swap operands to get rid of parentheses
         // x*(y*z) -> y*z*x
         | FunCall(Op "*", [NoParen x; FunCall(Op "*", [y; z])]) ->
@@ -251,7 +255,6 @@ module private RewriterImpl =
         //    when List.contains fctName.Name ["vec2"; "vec3"; "vec4"; "ivec2"; "ivec3"; "ivec4"] ->
         //    FunCall(Op "-=", [Var x; Var x]) // x=vec3(0);  ->  x-=x;
         | e -> e
-
 
     // Simplify calls to the vec constructor.
     let simplifyVec (constr: Ident) args =
